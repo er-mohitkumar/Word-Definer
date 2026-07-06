@@ -196,9 +196,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type !== 'DEFINE') return;
 
   chrome.storage.sync.get(['apiKey', 'provider', 'model', 'customModel'], async (result) => {
-    const { apiKey, provider = 'openrouter', customModel } = result;
+    const provider = result.provider || 'openrouter';
+    const apiKey = (result.apiKey || '').replace(/[^\x20-\x7E]/g, '');
     // customModel is the legacy field; model is the unified field going forward
-    const finalModel = customModel || result.model || 'deepseek/deepseek-r1:free';
+    const finalModel = result.customModel || result.model || 'deepseek/deepseek-r1:free';
 
     if (!apiKey) {
       sendResponse({ error: 'NO_KEY' });

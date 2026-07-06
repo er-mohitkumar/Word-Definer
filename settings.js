@@ -200,7 +200,15 @@ function applyProvider(providerId, keepModel) {
   if (!p) return;
   currentModels = p.models;
   if (!keepModel) modelInput.value = p.models[0]?.id || '';
-  apiInput.placeholder = p.placeholder;
+  
+  chrome.storage.sync.get(['apiKey', 'provider'], r => {
+    if (r.apiKey && r.provider === providerId) {
+      apiInput.placeholder = 'Leave blank to use saved key';
+    } else {
+      apiInput.placeholder = p.placeholder;
+    }
+  });
+
   keyLink.textContent  = p.keyLabel;
   keyLink.href         = p.keyUrl;
   refreshModelsBtn.style.display = '';
@@ -217,7 +225,7 @@ const TEXT_MODEL_SKIP = /lyria|whisper|tts|image|vision|embed|rerank|moderat/i;
 
 async function fetchModelsForProvider() {
   const providerId = providerSelect.value;
-  let key = apiInput.value.trim();
+  let key = apiInput.value.trim().replace(/[^\x20-\x7E]/g, '');
 
   if (!key && providerId !== 'openrouter') {
     const r = await new Promise(resolve => chrome.storage.sync.get(['apiKey', 'provider'], resolve));
@@ -344,10 +352,17 @@ chrome.storage.sync.get(['apiKey', 'provider', 'model', 'customModel'], r => {
 });
 
 // ── Save settings ──────────────────────────────────────────────────────────────
-saveBtn.addEventListener('click', () => {
-  const key      = apiInput.value.trim();
+saveBtn.addEventListener('click', async () => {
+  let key        = apiInput.value.trim().replace(/[^\x20-\x7E]/g, '');
   const provider = providerSelect.value;
   const model    = modelInput.value.trim();
+
+  if (!key) {
+    const r = await new Promise(resolve => chrome.storage.sync.get(['apiKey', 'provider'], resolve));
+    if (r.apiKey && r.provider === provider) {
+      key = r.apiKey.replace(/[^\x20-\x7E]/g, '');
+    }
+  }
 
   if (!key) {
     statusEl.textContent = 'Please enter an API key.';
