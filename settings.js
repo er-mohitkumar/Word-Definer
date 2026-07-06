@@ -203,10 +203,10 @@ function applyProvider(providerId, keepModel) {
   apiInput.placeholder = p.placeholder;
   keyLink.textContent  = p.keyLabel;
   keyLink.href         = p.keyUrl;
-  refreshModelsBtn.style.display = providerId === 'openrouter' ? '' : 'none';
+  refreshModelsBtn.style.display = '';
   if (providerId === 'openrouter' && !openrouterFetched) {
     openrouterFetched = true;
-    fetchOpenRouterFreeModels();
+    fetchModelsForProvider();
   }
 }
 
@@ -215,39 +215,110 @@ providerSelect.addEventListener('change', () => applyProvider(providerSelect.val
 // ── Live OpenRouter model fetch ────────────────────────────────────────────────
 const TEXT_MODEL_SKIP = /lyria|whisper|tts|image|vision|embed|rerank|moderat/i;
 
-async function fetchOpenRouterFreeModels() {
+async function fetchModelsForProvider() {
+  const providerId = providerSelect.value;
+  let key = apiInput.value.trim();
+
+  if (!key && providerId !== 'openrouter') {
+    const r = await new Promise(resolve => chrome.storage.sync.get(['apiKey', 'provider'], resolve));
+    if (r.provider === providerId && r.apiKey) {
+      key = r.apiKey;
+    } else {
+      statusEl.textContent = 'Please enter an API key first to fetch models.';
+      statusEl.className   = 'status error';
+      setTimeout(() => statusEl.textContent = '', 3000);
+      return;
+    }
+  }
+
   refreshModelsBtn.textContent = '↻ loading…';
   refreshModelsBtn.disabled    = true;
-  try {
-    const res  = await fetch('https://openrouter.ai/api/v1/models');
-    const data = await res.json();
-    const free = (data.data || [])
-      .filter(m => {
-        const p = m.pricing || {};
-        return String(p.prompt) === '0' && String(p.completion) === '0'
-          && !TEXT_MODEL_SKIP.test(m.id) && !TEXT_MODEL_SKIP.test(m.name || '');
-      })
-      .map(m => ({ id: m.id, name: m.name || m.id }))
-      .sort((a, b) => a.id.localeCompare(b.id));
 
-    if (free.length > 0) {
-      const paid = PROVIDERS.openrouter.models.filter(m => !m.id.endsWith(':free'));
-      PROVIDERS.openrouter.models = [...free, ...paid];
-      currentModels = PROVIDERS.openrouter.models;
-      refreshModelsBtn.textContent = `↻ ${free.length} free`;
+  try {
+    let fetchedModels = [];
+
+    if (providerId === 'openrouter') {
+      const res  = await fetch('https://openrouter.ai/api/v1/models');
+      const data = await res.json();
+      fetchedModels = (data.data || [])
+        .filter(m => !TEXT_MODEL_SKIP.test(m.id) && !TEXT_MODEL_SKIP.test(m.name || ''))
+        .map(m => {
+          let name = m.name || m.id;
+          const p = m.pricing || {};
+          const isFree = String(p.prompt) === '0' && String(p.completion) === '0';
+          if (isFree && !name.toLowerCase().includes('free')) {
+              name = name + ' (Free)';
+          }
+          return { id: m.id, name: name };
+        });
+    } else if (providerId === 'openai') {
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${key}` }
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      fetchedModels = (data.data || [])
+        .filter(m => !TEXT_MODEL_SKIP.test(m.id))
+        .map(m => ({ id: m.id, name: m.id }));
+    } else if (providerId === 'anthropic') {
+      const res = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      fetchedModels = (data.data || [])
+        .filter(m => m.type === 'model')
+        .map(m => ({ id: m.id, name: m.display_name || m.id }));
+    } else if (providerId === 'groq') {
+      const res = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: { 'Authorization': `Bearer ${key}` }
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      fetchedModels = (data.data || [])
+        .map(m => ({ id: m.id, name: m.id }));
+    } else if (providerId === 'gemini') {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      fetchedModels = (data.models || [])
+        .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+        .map(m => {
+           const id = m.name.replace('models/', '');
+           return { id, name: m.displayName || id };
+        });
+    }
+
+    if (fetchedModels.length > 0) {
+      fetchedModels.sort((a, b) => a.id.localeCompare(b.id));
+      PROVIDERS[providerId].models = fetchedModels;
+      if (providerSelect.value === providerId) {
+        currentModels = fetchedModels;
+      }
+      refreshModelsBtn.textContent = `↻ ${fetchedModels.length} models`;
       refreshModelsBtn.style.color = '#34d399';
       setTimeout(() => { refreshModelsBtn.textContent = '↻ refresh'; refreshModelsBtn.style.color = ''; }, 2500);
+    } else {
+      throw new Error('No models found');
     }
-  } catch {
+  } catch (err) {
+    console.error(err);
     refreshModelsBtn.textContent = '↻ failed';
     refreshModelsBtn.style.color = '#f87171';
-    setTimeout(() => { refreshModelsBtn.textContent = '↻ refresh'; refreshModelsBtn.style.color = ''; }, 2500);
+    statusEl.textContent = 'Failed to fetch models. Check API key or network.';
+    statusEl.className   = 'status error';
+    setTimeout(() => { 
+      refreshModelsBtn.textContent = '↻ refresh'; 
+      refreshModelsBtn.style.color = ''; 
+      statusEl.textContent = '';
+      statusEl.className = 'status';
+    }, 2500);
   } finally {
     refreshModelsBtn.disabled = false;
   }
 }
 
-refreshModelsBtn.addEventListener('click', fetchOpenRouterFreeModels);
+refreshModelsBtn.addEventListener('click', fetchModelsForProvider);
 
 // ── Toggle API key visibility ──────────────────────────────────────────────────
 toggleBtn.addEventListener('click', () => {

@@ -1,10 +1,18 @@
-const SYSTEM_PROMPT = `You are a dictionary API. Your response must be a single raw JSON object with absolutely no other text — no preamble, no markdown, no code fences, no explanation before or after.
-Required JSON format (use exactly these keys):
-{"type":"noun/verb/adj/adv/phrase/abbreviation/etc","definition":"clear 1-2 sentence definition in plain English","example":"a natural example sentence","note":"optional extra note, or null"}
+const SYSTEM_PROMPT = `You are a strict dictionary API. You must respond ONLY with a valid JSON object. Do not include any markdown formatting, code blocks, conversational text, or explanations. 
+
+Required JSON format:
+{
+  "type": "noun/verb/adj/adv/phrase/etc",
+  "definition": "clear 1-2 sentence definition",
+  "example": "a natural example sentence",
+  "note": "optional extra note, or null"
+}
+
 Rules:
-- Output ONLY the JSON. Nothing before it, nothing after it.
-- If the input is a technical term, function name, or code snippet, define it in plain English as a noun/phrase — do NOT output code.
-- The "note" value must be either a string or the JSON null literal.`;
+1. Return ONLY the JSON object.
+2. Keys must exactly match: "type", "definition", "example", "note".
+3. NO MARKDOWN (do not use \`\`\`json).
+4. NO EXPLANATIONS.`;
 
 // ── Provider API handlers ──────────────────────────────────────────────────────
 
@@ -17,7 +25,7 @@ async function callGemini(apiKey, model, word) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents: [{ parts: [{ text: `Define: ${word}` }] }],
-        generationConfig: { maxOutputTokens: 300, temperature: 0.2 }
+        generationConfig: { maxOutputTokens: 300, temperature: 0.2, responseMimeType: 'application/json' }
       })
     }
   );
@@ -43,7 +51,8 @@ async function callOpenAI(apiKey, model, word) {
         { role: 'user', content: `Define: ${word}` }
       ],
       max_tokens: 300,
-      temperature: 0.2
+      temperature: 0.2,
+      response_format: { type: 'json_object' }
     })
   });
   if (!res.ok) {
@@ -91,7 +100,8 @@ async function callGroq(apiKey, model, word) {
         { role: 'user', content: `Define: ${word}` }
       ],
       max_tokens: 300,
-      temperature: 0.2
+      temperature: 0.2,
+      response_format: { type: 'json_object' }
     })
   });
   if (!res.ok) {
@@ -118,7 +128,8 @@ async function callOpenRouter(apiKey, model, word) {
         { role: 'user', content: `Define: ${word}` }
       ],
       max_tokens: 300,
-      temperature: 0.2
+      temperature: 0.2,
+      response_format: { type: 'json_object' }
     })
   });
   if (!res.ok) {
